@@ -580,5 +580,135 @@ document.querySelector("main").appendChild(backupPanel);
 })();
 </script>
 
+<!-- NOVA JARVIS-INSPIRED VOICE -->
+<script>
+(() => {
+  const synth = window.speechSynthesis;
+
+  const panel = document.createElement("div");
+  panel.style.marginTop = "15px";
+
+  const title = document.createElement("h2");
+  title.textContent = "NOVA VOICE SETTINGS";
+
+  const description = document.createElement("p");
+  description.textContent =
+    "Choose a calm British voice for Nova";
+
+  const selector = document.createElement("select");
+  selector.style.cssText =
+    "width:100%;padding:12px;background:#061322;" +
+    "color:white;border:1px solid #325c7b;" +
+    "border-radius:8px;";
+
+  const test = document.createElement("button");
+  test.textContent = "Test Nova's Voice";
+
+  const status = document.createElement("p");
+  status.style.color = "#91b5c9";
+
+  panel.append(title, description, selector, test, status);
+
+  document.querySelector(".layout section.panel")
+    .appendChild(panel);
+
+  if (!synth) {
+    status.textContent = "Speech is not supported here";
+    return;
+  }
+
+  let availableVoices = [];
+
+  function voiceKey(v) {
+    return v.name + "|" + v.lang;
+  }
+
+  function loadVoices() {
+    availableVoices = synth.getVoices().filter(
+      v => v.lang.toLowerCase().startsWith("en")
+    );
+
+    selector.replaceChildren();
+
+    if (!availableVoices.length) {
+      status.textContent = "No English voices available yet";
+      return;
+    }
+
+    const saved = localStorage.getItem("nova_voice");
+
+    const preferred =
+      availableVoices.find(v => voiceKey(v) === saved) ||
+      availableVoices.find(v =>
+        v.lang.toLowerCase() === "en-gb" &&
+        /ryan|george|daniel|oliver|arthur|brian|male/i
+          .test(v.name)
+      ) ||
+      availableVoices.find(v =>
+        v.lang.toLowerCase() === "en-gb"
+      ) ||
+      availableVoices[0];
+
+    availableVoices.forEach(v => {
+      const option = document.createElement("option");
+      option.value = voiceKey(v);
+      option.textContent = v.name + " (" + v.lang + ")";
+      selector.appendChild(option);
+    });
+
+    selector.value = voiceKey(preferred);
+    status.textContent =
+      availableVoices.length + " voices available";
+  }
+
+  selector.onchange = () => {
+    localStorage.setItem("nova_voice", selector.value);
+  };
+
+  function speakNova(text) {
+    synth.cancel();
+
+    const speech = new SpeechSynthesisUtterance(text);
+
+    const chosen = availableVoices.find(
+      v => voiceKey(v) === selector.value
+    );
+
+    if (chosen) {
+      speech.voice = chosen;
+      speech.lang = chosen.lang;
+    }
+
+    speech.rate = 0.9;
+    speech.pitch = 0.85;
+    speech.volume = 1;
+
+    synth.speak(speech);
+  }
+
+  test.onclick = () => {
+    speakNova(
+      "Good evening. I am Nova. " +
+      "Your personal artificial intelligence assistant. " +
+      "All systems are operational."
+    );
+  };
+
+  // Replace the original robotic voice
+  reply = function(text) {
+    add("Nova", text);
+    if (voiceOn) {
+      speakNova(text);
+    }
+  };
+
+  loadVoices();
+
+  if ("addEventListener" in synth) {
+    synth.addEventListener("voiceschanged", loadVoices);
+  }
+})();
+</script>
+
 </body>
 </html>
