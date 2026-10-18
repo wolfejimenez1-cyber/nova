@@ -710,5 +710,212 @@ document.querySelector("main").appendChild(backupPanel);
 })();
 </script>
 
+<!-- NOVA DARK THEME + NATURAL VOICE + SPOTIFY -->
+<style>
+body {
+  background: #212121 !important;
+  color: #ececec !important;
+}
+header {
+  background: #171717 !important;
+  border-color: #363636 !important;
+}
+h1, h2 {
+  color: #f4f4f4 !important;
+}
+.panel, .nova-addon {
+  background: #2b2b2b !important;
+  border-color: #454545 !important;
+}
+#chat {
+  background: #202020 !important;
+}
+.msg {
+  background: #353535 !important;
+}
+input, select {
+  background: #303030 !important;
+  color: white !important;
+  border: 1px solid #555 !important;
+  padding: 12px;
+  border-radius: 8px;
+  max-width: 100%;
+}
+button {
+  background: #383838 !important;
+  border-color: #555 !important;
+}
+button:hover {
+  background: #505050 !important;
+}
+.nova-addon {
+  padding: 15px;
+  margin-top: 16px;
+  border: 1px solid #454545;
+  border-radius: 12px;
+}
+</style>
+
+<script>
+(() => {
+  // Remove the previous robotic voice selector.
+  document.querySelectorAll("h2").forEach(h => {
+    if (h.textContent.trim() === "NOVA VOICE SETTINGS") {
+      h.parentElement.remove();
+    }
+  });
+
+  const host = document.querySelector(".layout section.panel");
+  if (!host) return;
+
+  const panel = document.createElement("div");
+  panel.className = "nova-addon";
+
+  panel.innerHTML = `
+    <h2>NOVA AI VOICE</h2>
+    <p>Choose a natural voice</p>
+
+    <select id="novaAiVoice">
+      <option value="fable">British-style - Fable</option>
+      <option value="onyx">Deep - Onyx</option>
+      <option value="cedar">Calm - Cedar</option>
+    </select>
+
+    <button type="button" id="testAiVoice">
+      Test AI Voice
+    </button>
+
+    <button type="button" id="replayAiVoice">
+      Play Last Voice
+    </button>
+
+    <p id="aiVoiceStatus">Ready to test</p>
+
+    <h2>SPOTIFY MUSIC</h2>
+    <input id="novaSong" placeholder="Song or artist">
+
+    <button type="button" id="searchSpotify">
+      Find on Spotify
+    </button>
+
+    <p>Spotify search is ready.
+    Direct playback controls are coming later.</p>
+  `;
+
+  host.appendChild(panel);
+
+  const select = document.getElementById("novaAiVoice");
+  const status = document.getElementById("aiVoiceStatus");
+
+  select.value =
+    localStorage.getItem("nova_ai_voice") || "fable";
+
+  select.onchange = () => {
+    localStorage.setItem("nova_ai_voice", select.value);
+  };
+
+  let lastAudio = null;
+  let requestNumber = 0;
+
+  async function speakAI(message) {
+    // Remove emojis before speaking, but keep them in chat.
+    const clean = String(message)
+      .replace(/[\p{Extended_Pictographic}\uFE0F\u200D]/gu, "")
+      .replace(/[*_#`]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 900);
+
+    if (!clean) return;
+
+    const currentRequest = ++requestNumber;
+
+    if (lastAudio) lastAudio.pause();
+
+    if ("speechSynthesis" in window) {
+      speechSynthesis.cancel();
+    }
+
+    status.textContent = "Preparing AI voice...";
+
+    try {
+      if (!window.puter?.ai?.txt2speech) {
+        throw new Error("AI voice unavailable");
+      }
+
+      const audio = await puter.ai.txt2speech(clean, {
+        provider: "openai",
+        model: "gpt-4o-mini-tts",
+        voice: select.value,
+        instructions:
+          "Speak calmly and clearly in polished British English. " +
+          "Use measured pacing and a warm, confident tone. " +
+          "Sound like a sophisticated personal assistant."
+      });
+
+      if (currentRequest !== requestNumber) return;
+
+      if (!audio || typeof audio.play !== "function") {
+        throw new Error("No audio returned");
+      }
+
+      lastAudio = audio;
+      status.textContent = "Audio ready";
+
+      try {
+        await audio.play();
+        status.textContent = "Playing AI voice";
+      } catch {
+        status.textContent =
+          "Press Play Last Voice to hear the audio";
+      }
+
+    } catch (error) {
+      console.error(error);
+      status.textContent =
+        "Voice unavailable. Check Puter sign-in or credits.";
+    }
+  }
+
+  document.getElementById("testAiVoice").onclick = () => {
+    speakAI(
+      "Good evening. I am Nova, your personal " +
+      "artificial intelligence assistant. " +
+      "All systems are operational."
+    );
+  };
+
+  document.getElementById("replayAiVoice").onclick = () => {
+    if (lastAudio) {
+      lastAudio.currentTime = 0;
+      lastAudio.play().catch(() => {
+        status.textContent = "Audio could not play";
+      });
+    }
+  };
+
+  // Replace the old robotic voice.
+  window.reply = function(message) {
+    add("Nova", message);
+
+    if (voiceOn) {
+      speakAI(message);
+    }
+  };
+
+  document.getElementById("searchSpotify").onclick = () => {
+    const song = document.getElementById("novaSong")
+      .value.trim();
+
+    if (!song) return;
+
+    window.location.assign(
+      "https://open.spotify.com/search/" +
+      encodeURIComponent(song)
+    );
+  };
+})();
+</script>
+
 </body>
 </html>
