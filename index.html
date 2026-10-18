@@ -476,5 +476,109 @@ document.querySelector("main").appendChild(backupPanel);
 
 </script>
 
+<!-- NOVA AI CONNECTION -->
+<script src="https://js.puter.com/v2/"></script>
+
+<script>
+(() => {
+  const oldSend = $("form").onsubmit;
+  let busy = false;
+
+  const conversation = [
+    {
+      role: "system",
+      content:
+        "You are Nova, a friendly and helpful personal AI " +
+        "assistant. Speak naturally and clearly. " +
+        "Your user is accessing you through a website. " +
+        "Do not claim to control Spotify, Google accounts, " +
+        "or devices unless those features are connected."
+    }
+  ];
+
+  $("form").onsubmit = async function(event) {
+    const text = $("message").value.trim();
+
+    if (!text) {
+      event.preventDefault();
+      return;
+    }
+
+    const lower = text.toLowerCase();
+
+    // Keep the existing memory commands
+    if (
+      lower.startsWith("remember ") ||
+      lower.startsWith("i like ") ||
+      lower.startsWith("i prefer ") ||
+      lower.startsWith("my favorite ") ||
+      lower.includes("what do you remember")
+    ) {
+      return oldSend(event);
+    }
+
+    event.preventDefault();
+
+    if (busy) {
+      reply("Please wait for my current answer");
+      return;
+    }
+
+    busy = true;
+    $("message").value = "";
+
+    add("You", text);
+
+    try {
+      if (!window.puter?.ai?.chat) {
+        throw new Error("AI service unavailable");
+      }
+
+      const result = await puter.ai.chat(
+        [...conversation, {
+          role: "user",
+          content: text
+        }],
+        { normalize: true }
+      );
+
+      const answer = result?.message?.content;
+
+      if (typeof answer !== "string" || !answer.trim()) {
+        throw new Error("No text response");
+      }
+
+      reply(answer);
+
+      conversation.push(
+        { role: "user", content: text },
+        { role: "assistant", content: answer }
+      );
+
+      // Keep recent messages for context
+      if (conversation.length > 15) {
+        conversation.splice(1, conversation.length - 15);
+      }
+
+    } catch (error) {
+      console.error(error);
+      reply(
+        "I couldn't connect to the AI service. " +
+        "Check your internet connection and Puter sign-in."
+      );
+    } finally {
+      busy = false;
+    }
+  };
+
+  // Update the system display
+  document.querySelectorAll("p").forEach(p => {
+    if (p.textContent.trim() === "AI model: Not connected yet") {
+      p.textContent = "AI model: Puter AI (sign-in required)";
+    }
+  });
+})();
+</script>
+
 </body>
 </html>
