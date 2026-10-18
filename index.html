@@ -397,6 +397,83 @@ recognition.start();
 
 renderMemories();
 reply("Hello. I'm Nova. Welcome to your personal assistant.");
+  
+const backupPanel = document.createElement("div");
+backupPanel.className = "panel";
+backupPanel.style.marginTop = "16px";
+
+const backupTitle = document.createElement("h2");
+backupTitle.textContent = "MEMORY BACKUP";
+
+const backupHelp = document.createElement("p");
+backupHelp.textContent =
+  "Keep your memory backup in a private place";
+
+const backupText = document.createElement("textarea");
+backupText.rows = 5;
+backupText.placeholder = "Your backup appears here";
+backupText.style.cssText =
+  "width:100%;padding:12px;background:#061322;" +
+  "color:white;border:1px solid #325c7b;" +
+  "border-radius:8px;";
+
+const exportButton = document.createElement("button");
+exportButton.textContent = "Show backup text";
+
+exportButton.onclick = () => {
+  backupText.value = JSON.stringify(memories, null, 2);
+  backupText.focus();
+  backupText.select();
+  reply("Copy this backup into a private note");
+};
+
+const importButton = document.createElement("button");
+importButton.textContent = "Restore backup text";
+
+importButton.onclick = () => {
+  let restored;
+
+  try {
+    restored = JSON.parse(backupText.value);
+  } catch {
+    reply("That backup text is not valid");
+    return;
+  }
+
+  if (
+    !Array.isArray(restored) ||
+    !restored.every(
+      x => typeof x === "string" && x.length <= 5000
+    )
+  ) {
+    reply("That is not a valid Nova memory backup");
+    return;
+  }
+
+  if (!confirm("Add these memories to Nova?")) return;
+
+  const previous = memories.slice();
+  memories = [...new Set([...memories, ...restored])];
+
+  if (!save()) {
+    memories = previous;
+    return;
+  }
+
+  renderMemories();
+  reply("Memories restored");
+};
+
+backupPanel.append(
+  backupTitle,
+  backupHelp,
+  backupText,
+  exportButton,
+  importButton
+);
+
+document.querySelector("main").appendChild(backupPanel);
+
 </script>
 
 </body>
