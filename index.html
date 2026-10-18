@@ -1,0 +1,403 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NOVA AI</title>
+
+<style>
+*{box-sizing:border-box}
+
+body{
+margin:0;
+background:#030914;
+color:#e9f8ff;
+font-family:Arial,sans-serif;
+}
+
+header{
+display:flex;
+justify-content:space-between;
+align-items:center;
+padding:18px 25px;
+border-bottom:1px solid #21445f;
+}
+
+h1{margin:0;color:#62d8ff;letter-spacing:5px}
+small{color:#91b5c9}
+
+main{
+max-width:1050px;
+margin:auto;
+padding:22px;
+}
+
+.orb-area{
+text-align:center;
+padding:30px 0;
+}
+
+.orb{
+width:170px;
+height:170px;
+margin:10px auto 25px;
+border-radius:50%;
+display:grid;
+place-items:center;
+background:
+radial-gradient(circle,#b7f8ff 0%,#249fd7 25%,#083a72 65%,#020c19 85%);
+box-shadow:0 0 35px #179edd,0 0 85px #075588;
+animation:pulse 3s infinite ease-in-out;
+}
+
+.orb:before{
+content:"";
+position:absolute;
+width:195px;
+height:195px;
+border:2px dashed #49d5ff;
+border-radius:50%;
+animation:rotate 12s linear infinite;
+}
+
+.orb span{
+font-size:22px;
+font-weight:bold;
+letter-spacing:3px;
+}
+
+@keyframes pulse{
+50%{box-shadow:0 0 65px #46cfff,0 0 120px #087cc0}
+}
+
+@keyframes rotate{
+to{transform:rotate(360deg)}
+}
+
+.layout{
+display:grid;
+grid-template-columns:2fr 1fr;
+gap:16px;
+}
+
+.panel{
+background:#0a1828;
+border:1px solid #254a66;
+border-radius:14px;
+padding:17px;
+}
+
+h2{font-size:16px;color:#72dfff}
+
+#chat{
+height:260px;
+overflow-y:auto;
+background:#05111f;
+border-radius:9px;
+padding:12px;
+margin-bottom:12px;
+}
+
+.msg{
+margin:9px 0;
+padding:10px;
+border-radius:8px;
+background:#142c42;
+overflow-wrap:anywhere;
+}
+
+.you{border-left:3px solid #58e9c0}
+.nova{border-left:3px solid #61d7ff}
+
+input{
+width:100%;
+padding:13px;
+border-radius:8px;
+border:1px solid #325c7b;
+background:#061322;
+color:white;
+font-size:15px;
+}
+
+button{
+padding:10px 14px;
+border:1px solid #3984ae;
+border-radius:8px;
+background:#103c60;
+color:white;
+cursor:pointer;
+margin-top:8px;
+}
+
+button:hover{background:#16557f}
+
+.actions{
+display:flex;
+gap:8px;
+flex-wrap:wrap;
+}
+
+.memory{
+padding:10px;
+border-bottom:1px solid #29465f;
+overflow-wrap:anywhere;
+}
+
+#suggestion{
+display:none;
+background:#102b42;
+border:1px solid #3b8da8;
+border-radius:10px;
+padding:12px;
+margin-top:12px;
+}
+
+.status{
+color:#7ff0bb;
+font-size:13px;
+}
+
+@media(max-width:720px){
+.layout{grid-template-columns:1fr}
+header{padding:14px}
+.orb{width:140px;height:140px}
+.orb:before{width:165px;height:165px}
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>NOVA</h1>
+<small>PERSONAL AI ASSISTANT</small>
+</header>
+
+<main>
+
+<div class="orb-area">
+<div class="orb"><span>NOVA</span></div>
+<p class="status">SYSTEM ONLINE — DEMO MODE</p>
+<p id="clock"></p>
+</div>
+
+<div class="layout">
+
+<section class="panel">
+<h2>NOVA COMMUNICATION</h2>
+
+<div id="chat"></div>
+
+<form id="form">
+<input id="message" placeholder="Ask Nova something..." autocomplete="off">
+<div class="actions">
+<button type="submit">Send</button>
+<button type="button" id="mic">Microphone</button>
+<button type="button" id="voice">Voice: OFF</button>
+</div>
+</form>
+
+<div id="suggestion">
+<p id="suggestionText"></p>
+<button id="approve">Remember</button>
+<button id="reject">Don't remember</button>
+</div>
+</section>
+
+<section class="panel">
+<h2>PERSONAL MEMORY</h2>
+<small>Nova asks before saving memories</small>
+<div id="memories"></div>
+
+<h2>SYSTEM INFORMATION</h2>
+<p>Interface: Online</p>
+<p>AI model: Not connected yet</p>
+<p>Memory: This browser</p>
+<p>Spotify: Not connected yet</p>
+<p>Raspberry Pi: Not connected yet</p>
+</section>
+
+</div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+let memories = [];
+let pending = "";
+let voiceOn = false;
+
+try {
+memories = JSON.parse(localStorage.getItem("nova_memories") || "[]");
+if(!Array.isArray(memories)) memories = [];
+} catch {
+memories = [];
+}
+
+function save(){
+try{
+localStorage.setItem("nova_memories",JSON.stringify(memories));
+return true;
+}catch{
+reply("Browser storage is unavailable");
+return false;
+}
+}
+
+function clock(){
+$("clock").textContent = new Date().toLocaleString();
+}
+clock();
+setInterval(clock,1000);
+
+function add(sender,text){
+const div = document.createElement("div");
+div.className = "msg " + (sender==="You" ? "you" : "nova");
+div.textContent = sender + ": " + text;
+$("chat").appendChild(div);
+$("chat").scrollTop = $("chat").scrollHeight;
+}
+
+function reply(text){
+add("Nova",text);
+if(voiceOn && "speechSynthesis" in window){
+speechSynthesis.cancel();
+const speech = new SpeechSynthesisUtterance(text);
+speech.rate = 0.95;
+speechSynthesis.speak(speech);
+}
+}
+
+function renderMemories(){
+$("memories").replaceChildren();
+
+if(!memories.length){
+const p=document.createElement("p");
+p.textContent="No approved memories yet";
+$("memories").appendChild(p);
+return;
+}
+
+memories.forEach((item,index)=>{
+const div=document.createElement("div");
+div.className="memory";
+
+const text=document.createElement("p");
+text.textContent=item;
+
+const edit=document.createElement("button");
+edit.textContent="Edit";
+edit.onclick=()=>{
+const changed=prompt("Edit memory",item);
+if(changed!==null && changed.trim()){
+memories[index]=changed.trim();
+save();
+renderMemories();
+}
+};
+
+const del=document.createElement("button");
+del.textContent="Delete";
+del.onclick=()=>{
+if(confirm("Delete this memory?")){
+memories.splice(index,1);
+save();
+renderMemories();
+}
+};
+
+div.append(text,edit,del);
+$("memories").appendChild(div);
+});
+}
+
+function suggest(text){
+if(/password|passcode|secret key|credit card/i.test(text)){
+reply("Please don't save passwords or other sensitive secrets");
+return;
+}
+pending=text;
+$("suggestionText").textContent="Should I remember: "+text+"?";
+$("suggestion").style.display="block";
+reply("I found something I could remember. Approve or reject it below.");
+}
+
+$("approve").onclick=()=>{
+if(pending && !memories.includes(pending)){
+memories.push(pending);
+if(save()) reply("Memory saved");
+}
+pending="";
+$("suggestion").style.display="none";
+renderMemories();
+};
+
+$("reject").onclick=()=>{
+pending="";
+$("suggestion").style.display="none";
+reply("Okay I won't remember that");
+};
+
+$("form").onsubmit=e=>{
+e.preventDefault();
+
+const input=$("message");
+const text=input.value.trim();
+if(!text)return;
+
+input.value="";
+add("You",text);
+
+const lower=text.toLowerCase();
+
+if(lower.startsWith("remember ")){
+suggest(text.slice(9));
+}
+else if(lower.includes("what do you remember")){
+reply(memories.length ? memories.join(" | ") : "You haven't approved any memories yet");
+}
+else if(lower.includes("time") || lower.includes("date")){
+reply("It's "+new Date().toLocaleString());
+}
+else if(lower.startsWith("i like ") || lower.startsWith("i prefer ") || lower.startsWith("my favorite ")){
+suggest(text);
+}
+else{
+reply("I'm Nova's website demo. My real AI brain isn't connected yet. I can save approved memories and tell you the time. We'll add conversations when we connect an AI model.");
+}
+};
+
+$("voice").onclick=()=>{
+voiceOn=!voiceOn;
+$("voice").textContent=voiceOn?"Voice: ON":"Voice: OFF";
+if(!voiceOn && "speechSynthesis" in window){
+speechSynthesis.cancel();
+}
+};
+
+const Recognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+
+$("mic").onclick=()=>{
+if(!Recognition){
+reply("Microphone recognition isn't supported in this browser");
+return;
+}
+
+const recognition=new Recognition();
+recognition.lang="en-US";
+recognition.onresult=e=>{
+$("message").value=e.results[0][0].transcript;
+};
+recognition.onerror=()=>{
+reply("Microphone input couldn't start");
+};
+recognition.start();
+};
+
+renderMemories();
+reply("Hello. I'm Nova. Welcome to your personal assistant.");
+</script>
+
+</body>
+</html>
