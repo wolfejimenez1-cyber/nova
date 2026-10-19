@@ -917,5 +917,336 @@ button:hover {
 })();
 </script>
 <!-- NOVA SPOTIFY PLAYER -->
+
+<script>
+(() => {
+  const REDIRECT =
+    "https://wolfejimenez1-cyber.github.io/nova/";
+
+  const get = id => document.getElementById(id);
+
+  const panel = document.createElement("section");
+  panel.className = "panel";
+  panel.style.marginTop = "16px";
+
+  panel.innerHTML = `
+    <h2>SPOTIFY PLAYER</h2>
+    <p>Connect your Spotify Premium account to Nova.</p>
+
+    <input id="spClientId"
+      placeholder="Paste Spotify Client ID (not secret)">
+
+    <button id="spConnect" type="button">
+      Connect Spotify
+    </button>
+
+    <p id="spStatus">Not connected</p>
+
+    <button id="spDevices" type="button">
+      Find Spotify Devices
+    </button>
+
+    <select id="spDevice"></select>
+
+    <input id="spSong"
+      placeholder="Enter a song or artist">
+
+    <button id="spPlay" type="button">Play Song</button>
+    <button id="spPause" type="button">Pause</button>
+    <button id="spResume" type="button">Resume</button>
+    <button id="spNext" type="button">Next Song</button>
+  `;
+
+  document.querySelector("main").appendChild(panel);
+
+  const status = text => {
+    get("spStatus").textContent = text;
+  };
+
+  get("spClientId").value =
+    localStorage.getItem("novaSpotifyClientId") || "";
+
+  let token =
+    sessionStorage.getItem("novaSpotifyToken") || "";
+
+  function encode(bytes) {
+    return btoa(String.fromCharCode(...bytes))
+      .replace(/=/g, "")
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_");
+  }
+
+  async function connect() {
+    const clientId = get("spClientId").value.trim();
+
+    if (!/^[a-f0-9]{32}$/i.test(clientId)) {
+      throw new Error(
+        "Enter your Spotify Client ID first."
+      );
+    }
+
+    localStorage.setItem(
+      "novaSpotifyClientId", clientId
+    );
+
+    const verifier = encode(
+      crypto.getRandomValues(new Uint8Array(48))
+    );
+
+    const state = encode(
+      crypto.getRandomValues(new Uint8Array(16))
+    );
+
+    const hash = await crypto.subtle.digest(
+      "SHA-256",
+      new TextEncoder().encode(verifier)
+    );
+
+    sessionStorage.setItem("novaSpVerifier", verifier);
+    sessionStorage.setItem("novaSpState", state);
+
+    const params = new URLSearchParams({
+      client_id: clientId,
+      response_type: "code",
+      redirect_uri: REDIRECT,
+      state: state,
+      scope:
+        "user-read-playback-state " +
+        "user-modify-playback-state",
+      code_challenge_method: "S256",
+      code_challenge: encode(new Uint8Array(hash))
+    });
+
+    location.assign(
+      "https://accounts.spotify.com/authorize?" +
+      params.toString()
+    );
+  }
+
+  async function finishLogin() {
+    const params = new URLSearchParams(location.search);
+
+    if (!params.has("code") && !params.has("error")) {
+      if (token) status("Previously connected. Try Find Devices.");
+      return;
+    }
+
+    history.replaceState(null, "", REDIRECT);
+
+    if (params.has("error")) {
+      throw new Error("Spotify authorization was cancelled.");
+    }
+
+    const state = sessionStorage.getItem("novaSpState");
+    const verifier =
+      sessionStorage.getItem("novaSpVerifier");
+
+    sessionStorage.removeItem("novaSpState");
+    sessionStorage.removeItem("novaSpVerifier");
+
+    if (!state || !verifier ||
+        state !== params.get("state")) {
+      throw new Error(
+        "Sign-in expired. Press Connect Spotify again."
+      );
+    }
+
+    const result = await fetch(
+      "https://accounts.spotify.com/api/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: params.get("code"),
+          redirect_uri: REDIRECT,
+          code_verifier: verifier,
+          client_id: localStorage.getItem(
+            "novaSpotifyClientId"
+          )
+        })
+      }
+    );
+
+    const data = await result.json();
+
+    if (!result.ok || !data.access_token) {
+      throw new Error("Spotify connection failed.");
+    }
+
+    token = data.access_token;
+
+    sessionStorage.setItem("novaSpotifyToken", token);
+    sessionStorage.setItem(
+      "novaSpotifyExpires",
+      String(Date.now() + data.expires_in * 1000)
+    );
+
+    status("Spotify connected! Click Find Spotify Devices.");
+  }
+
+  async function spotify(path, method = "GET", body) {
+    if (!token ||
+        Date.now() >= Number(
+          sessionStorage.getItem("novaSpotifyExpires")
+        )) {
+      throw new Error(
+        "Your session expired. Connect Spotify again."
+      );
+    }
+
+    const response = await fetch(
+      "https://api.spotify.com/v1" + path,
+      {
+        method,
+        headers: {
+          Authorization: "Bearer " + token,
+          "Content-Type": "application/json"
+        },
+        ...(body ? {body: JSON.stringify(body)} : {})
+      }
+    );
+
+    if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error(
+          "Spotify denied this action. Check Premium, " +
+          "app permissions and device support."
+        );
+      }
+
+      if (response.status === 404) {
+        throw new Error(
+          "No supported playback device found. " +
+          "Try starting Spotify on Xbox first."
+        );
+      }
+
+      throw new Error(
+        "Spotify error " + response.status
+      );
+    }
+
+    return response.status === 204
+      ? null
+      : response.json();
+  }
+
+  async function findDevices() {
+    const data = await spotify("/me/player/devices");
+    const dropdown = get("spDevice");
+
+    dropdown.replaceChildren();
+
+    const devices = (data.devices || []).filter(
+      d => d.id && !d.is_restricted
+    );
+
+    devices.forEach(device => {
+      dropdown.add(
+        new Option(device.name, device.id)
+      );
+    });
+
+    const preferred = devices.find(d =>
+      /xbox/i.test(d.name)
+    ) || devices.find(d => d.is_active);
+
+    if (preferred) {
+      dropdown.value = preferred.id;
+    }
+
+    return devices.length
+      ? "Choose your device, then try Play Song."
+      : "No controllable devices found. Open Spotify on Xbox.";
+  }
+
+  function device() {
+    const id = get("spDevice").value;
+
+    if (!id) {
+      throw new Error("Click Find Spotify Devices first.");
+    }
+
+    return "?device_id=" + encodeURIComponent(id);
+  }
+
+  async function playSong() {
+    const song = get("spSong").value.trim();
+
+    if (!song) {
+      throw new Error("Enter a song or artist.");
+    }
+
+    const results = await spotify(
+      "/search?type=track&limit=1&q=" +
+      encodeURIComponent(song)
+    );
+
+    const track = results.tracks?.items?.[0];
+
+    if (!track) {
+      throw new Error("Song not found.");
+    }
+
+    await spotify(
+      "/me/player/play" + device(),
+      "PUT",
+      {uris: [track.uri]}
+    );
+
+    return "Playing " + track.name;
+  }
+
+  async function run(action) {
+    try {
+      status("Working...");
+      const message = await action();
+      if (message) status(message);
+    } catch (error) {
+      console.error(error);
+      status(error.message || "Spotify request failed.");
+    }
+  }
+
+  get("spConnect").onclick =
+    () => run(connect);
+
+  get("spDevices").onclick =
+    () => run(findDevices);
+
+  get("spPlay").onclick =
+    () => run(playSong);
+
+  get("spPause").onclick = () => run(async () => {
+    await spotify(
+      "/me/player/pause" + device(), "PUT"
+    );
+    return "Spotify paused.";
+  });
+
+  get("spResume").onclick = () => run(async () => {
+    await spotify(
+      "/me/player/play" + device(), "PUT"
+    );
+    return "Spotify resumed.";
+  });
+
+  get("spNext").onclick = () => run(async () => {
+    await spotify(
+      "/me/player/next" + device(), "POST"
+    );
+    return "Skipped to the next song.";
+  });
+
+  finishLogin().catch(error => {
+    status(error.message);
+  });
+})();
+</script>
+
 </body>
 </html>
