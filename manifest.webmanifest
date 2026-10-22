@@ -6,5 +6,12 @@
   "scope": "/nova/",
   "display": "standalone",
   "background_color": "#212121",
-  "theme_color": "#212121"
+  "theme_color": "#212121",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
 }
