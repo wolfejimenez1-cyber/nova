@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+width="512" height="512" viewBox="0 0 512 512">
+<defs>
+<linearGradient id="bg" x2="100%" y2="100%">
+<stop stop-color="#273858"/>
+<stop offset=".5" stop-color="#101a36"/>
+<stop offset="1" stop-color="#21163e"/>
+</linearGradient>
+<linearGradient id="n" x2="100%" y2="100%">
+<stop stop-color="#f1f5ff"/>
+<stop offset=".25" stop-color="#7dbbff"/>
+<stop offset=".55" stop-color="#5969d9"/>
+<stop offset=".8" stop-color="#b58cf5"/>
+<stop offset="1" stop-color="#e3d8ff"/>
+</linearGradient>
+<filter id="shadow">
+<feGaussianBlur stdDeviation="5"/>
+</filter>
+</defs>
+<rect width="512" height="512" rx="110" fill="url(#bg)"/>
+<path d="M115 380V130H186L326 291V130H397V380H326L186 218V380Z"
+fill="#628cff" opacity=".3" filter="url(#shadow)"/>
+<path d="M115 380V130H186L326 291V130H397V380H326L186 218V380Z"
+fill="url(#n)" stroke="#c8d8ff" stroke-width="3"/>
+<path d="M133 150V356M185 155L345 341M378 147V355"
+fill="none" stroke="#ffffff" stroke-opacity=".35"
+stroke-width="7" stroke-linecap="round"/>
+<rect x="7" y="7" width="498" height="498" rx="105"
+fill="none" stroke="#9f9cff" stroke-opacity=".4" stroke-width="4"/>
+</svg>
