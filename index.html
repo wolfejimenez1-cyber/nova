@@ -751,6 +751,80 @@ button:hover {
   border: 1px solid #454545;
   border-radius: 12px;
 }
+  /* NOVA MODERN CHAT DESIGN */
+
+body {
+  font-family: "Segoe UI", Arial, sans-serif !important;
+  background: #212121 !important;
+  color: #ececec !important;
+}
+
+header {
+  padding: 18px 26px;
+  border-bottom: 1px solid #383838 !important;
+}
+
+header h1 {
+  font-size: 23px;
+  letter-spacing: 2px;
+  color: white !important;
+}
+
+main {
+  max-width: 1200px;
+  padding: 24px;
+}
+
+.panel, .nova-addon {
+  border-radius: 18px !important;
+  box-shadow: none;
+}
+
+#chat {
+  height: 420px;
+  padding: 18px;
+  background: #212121 !important;
+  border: 1px solid #383838;
+  border-radius: 16px;
+}
+
+.msg {
+  line-height: 1.6;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.msg.you {
+  background: #303030 !important;
+  border-left: none;
+  margin-left: 12%;
+}
+
+.msg.nova {
+  background: transparent !important;
+  border-left: none;
+  border-bottom: 1px solid #383838;
+}
+
+#message {
+  background: #303030 !important;
+  border-radius: 18px !important;
+  padding: 16px !important;
+}
+
+button {
+  border-radius: 12px !important;
+}
+
+@media (max-width: 720px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  #chat {
+    height: 330px;
+  }
+}
 </style>
 
 <script>
