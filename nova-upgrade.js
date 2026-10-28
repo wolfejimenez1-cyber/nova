@@ -100,7 +100,7 @@
   toolbar.className = "nova-toolbar";
   toolbar.innerHTML = `
     <button id="nova-mode-type" type="button" aria-pressed="true" title="Type replies only">⌨ Type</button>
-    <button id="nova-mode-talk" type="button" aria-pressed="false" title="Read replies aloud">🔊 Talk</button>
+    <button id="nova-mode-talk" type="button" aria-pressed="false" title="Start microphone and read replies aloud">🎙 Talk</button>
     <button id="nova-open-settings" type="button" aria-label="Open settings" title="Settings">⚙ Settings</button>
   `;
   header.appendChild(toolbar);
@@ -117,7 +117,7 @@
       </div>
       <div class="nova-settings-section">
         <h3>🎙 Voice</h3>
-        <p>Choose Type for silent text replies or Talk for spoken replies. Microphone input works in either mode if your browser supports it.</p>
+        <p>Talk starts the microphone for one message and reads replies aloud. Press Microphone for another message, or Stop listening to cancel. Type stops listening and switches to silent replies. Speech recognition depends on your browser and may send audio to its speech service.</p>
         <label for="nova-voice-source">Voice type</label>
         <select id="nova-voice-source">
           <option value="browser">Device voices (free)</option>
@@ -209,8 +209,8 @@
     if (outputMode === "type") stopSpeech();
     localStorage.setItem("nova_output_mode", outputMode);
   }
-  $("nova-mode-type").onclick = () => { outputMode = "type"; updateMode(); };
-  $("nova-mode-talk").onclick = () => { outputMode = "talk"; updateMode(); };
+  $("nova-mode-type").onclick = () => { stopMicrophone(); outputMode = "type"; updateMode(); };
+  $("nova-mode-talk").onclick = () => { outputMode = "talk"; updateMode(); startMicrophone(); };
   updateMode();
 
   function loadVoiceChoices() {
@@ -496,24 +496,109 @@
     }
   };
 
-  // In microphone mode, spoken input is sent automatically as a chat message.
-  if (micButton) micButton.onclick = () => {
+  // One recognition session at a time; no silent/background restarts.
+  const voiceStatus = document.createElement("p");
+  voiceStatus.id = "nova-voice-status";
+  voiceStatus.setAttribute("role", "status");
+  voiceStatus.setAttribute("aria-live", "polite");
+  voiceStatus.style.cssText = "font-size:13px;color:#c9c9c9;line-height:1.5;margin:10px 8px;overflow-wrap:anywhere";
+  form.after(voiceStatus);
+  voiceStatus.textContent = "Tap Talk to speak, or type a message.";
+  let activeRecognition = null;
+  function setMicrophoneBusy(busy) {
+    if (!micButton) return;
+    micButton.textContent = busy ? "Stop listening" : "Microphone";
+    micButton.setAttribute("aria-pressed", String(busy));
+  }
+  function microphoneError(code) {
+    const help = {
+      "not-allowed": "Microphone access was blocked. Open this site's browser permissions, allow Microphone, and check your device's microphone privacy settings. Then reload Nova and try again.",
+      "service-not-allowed": "This browser blocked its speech-recognition service. Microphone permission alone may not fix it. Try Nova in another browser with speech recognition, or use your keyboard's dictation.",
+      "audio-capture": "Nova couldn't access a microphone. Check that your headset is connected, unmuted, and selected as the input device. Close other apps using it, then retry.",
+      "network": "The browser's speech-recognition service couldn't connect. Check your internet connection. If it continues, try another supported browser or keyboard dictation.",
+      "no-speech": "No speech was detected. Check your microphone is unmuted, tap Talk, and speak after Listening appears.",
+      "language-not-supported": "This browser's speech service doesn't support the selected language. Try keyboard dictation or another supported browser.",
+      "aborted": "Listening was interrupted. Tap Talk to try again.",
+      "unsupported": "This browser doesn't provide speech recognition for Nova. You can use your keyboard's dictation in the message box, or try a browser with speech recognition.",
+      "insecure": "Microphone input needs a secure page. Open Nova using its https:// website address."
+    };
+    voiceStatus.textContent = (help[code] || "Voice input couldn't start. Reload Nova and try again, or use keyboard dictation.") + " (Voice error: " + code + ")";
+  }
+  function stopMicrophone() {
+    const previous = activeRecognition;
+    activeRecognition = null;
+    if (previous) { try { previous.abort(); } catch {} }
+    setMicrophoneBusy(false);
+    voiceStatus.textContent = "Listening stopped. Tap Talk when you're ready.";
+  }
+  function startMicrophone() {
+    if (activeRecognition) return;
+    if (thinking) { voiceStatus.textContent = "Nova is finishing its answer. Try the microphone when it finishes."; return; }
+    if (input.value.trim()) { voiceStatus.textContent = "Send or clear your typed draft before starting the microphone."; return; }
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) { window.reply("Voice input isn't supported in this browser."); return; }
-    const recognition = new Recognition();
+    if (!window.isSecureContext) { microphoneError("insecure"); return; }
+    if (!Recognition) { microphoneError("unsupported"); return; }
+    stopSpeech();
+    let recognition;
+    try { recognition = new Recognition(); }
+    catch (error) { microphoneError(error.name || "start-failed"); return; }
+    activeRecognition = recognition;
+    let received = false;
+    let failed = false;
     recognition.lang = "en-US";
+    recognition.continuous = false;
     recognition.interimResults = false;
+    setMicrophoneBusy(true);
+    voiceStatus.textContent = "Starting microphone… Allow microphone access if your browser asks.";
+    recognition.onstart = () => {
+      if (activeRecognition === recognition) voiceStatus.textContent = "Listening… Speak your message. Press Stop listening to cancel.";
+    };
     recognition.onresult = (event) => {
-      const heard = event.results?.[0]?.[0]?.transcript || "";
-      if (!heard.trim()) return;
+      if (activeRecognition !== recognition || received || failed) return;
+      const heard = event.results?.[event.resultIndex || 0]?.[0]?.transcript?.trim() || "";
+      if (!heard) return;
+      received = true;
+      activeRecognition = null;
+      try { recognition.abort(); } catch {}
+      setMicrophoneBusy(false);
+      if (thinking || input.value.trim()) {
+        voiceStatus.textContent = "Heard: “" + heard + "”. Your draft/current answer was kept. Send this when ready.";
+        return;
+      }
       input.value = heard;
+      voiceStatus.textContent = "Heard: “" + heard + "”. Message sent. Tap Talk for your next message.";
       if (form.requestSubmit) form.requestSubmit();
       else form.dispatchEvent(new Event("submit", { cancelable: true }));
     };
-    recognition.onerror = () => window.reply("I couldn't hear you. Please try the microphone again.");
+    recognition.onerror = (event) => {
+      if (activeRecognition !== recognition) return;
+      failed = true;
+      activeRecognition = null;
+      setMicrophoneBusy(false);
+      microphoneError(event.error || "unknown");
+      try { recognition.abort(); } catch {}
+    };
+    recognition.onend = () => {
+      if (activeRecognition !== recognition) return;
+      activeRecognition = null;
+      setMicrophoneBusy(false);
+      if (!received && !failed) microphoneError("no-speech");
+    };
     try { recognition.start(); }
-    catch { window.reply("Microphone input couldn't start. Please try again."); }
+    catch (error) {
+      if (activeRecognition !== recognition) return;
+      activeRecognition = null;
+      setMicrophoneBusy(false);
+      microphoneError(error.name === "NotAllowedError" ? "not-allowed" : error.name || "start-failed");
+    }
+  }
+  if (micButton) micButton.onclick = () => {
+    if (activeRecognition) stopMicrophone();
+    else startMicrophone();
   };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && activeRecognition) stopMicrophone();
+  });
 
   // Show Settings for the one-time Spotify connection; never display the original player panel.
   refreshMemoryList();
