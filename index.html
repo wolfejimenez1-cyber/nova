@@ -1331,13 +1331,15 @@ main {
     return "Skipped to the next song.";
   });
 
+  window.novaSpotify = Object.freeze({request: spotify, findDevices, connect});
+
   finishLogin().catch(error => {
     status(error.message);
   });
 })();
 </script>
 
-<script src="nova-upgrade.js?v=20261026-voice"></script>
+<script src="nova-upgrade.js?v=20261028-chat"></script>
 </body>
 </html>
 
