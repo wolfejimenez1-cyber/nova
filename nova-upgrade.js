@@ -273,8 +273,10 @@
   $("nova-test-voice").onclick = () => { stopSpeech(); speak("Hello. I'm Nova, your personal AI assistant."); };
 
   // Preserve the existing chat display while making Type / Talk control speech output.
-  window.reply = function (message) {
+  let savedChats = null;
+  window.reply = function (message, replay = false) {
     add("Nova", String(message));
+    if (!replay) savedChats?.record('assistant', String(message));
     const bubble = chat.lastElementChild;
     if (bubble && String(message).includes('```')) {
       bubble.replaceChildren(document.createTextNode('Nova: '));
@@ -292,7 +294,7 @@
         bubble.append(copy,pre);
       }
     }
-    if (outputMode === "talk") speak(message);
+    if (!replay && outputMode === "talk") speak(message);
   };
 
   // Global script in the existing page defines memories, save(), and renderMemories().
@@ -668,6 +670,7 @@
     if (!localRequest && refreshAIStatus() !== 'signed-in') return;
     input.value = "";
     add("You", text);
+    savedChats?.record('user', text);
 
     const remembering = text.match(/^(?:please\s+)?remember\s+(?:that\s+)?(.+)$/i);
     if (remembering) { remember(remembering[1].trim()); return; }
@@ -714,6 +717,7 @@
       aiStatus.textContent = 'Reply received.';
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: answer });
       if (chatHistory.length > 20) chatHistory.splice(0, chatHistory.length - 20);
+      savedChats?.context(chatHistory);
     } catch (error) {
       if (error?.message === 'NOVA_CANCELLED') {
         aiStatus.textContent = 'Response stopped.';
@@ -838,6 +842,22 @@
   });
 
   // Show Settings for the one-time Spotify connection; never display the original player panel.
+  let chatsInitialized = false;
+  if (window.NovaChats) savedChats = window.NovaChats.mount({
+    chat, input,
+    busy: () => thinking || musicBusy || !!activeRecognition || signingIn,
+    render: (role, text) => role === 'user' ? add('You', text) : window.reply(text, true),
+    onSelect: (context) => {
+      stopSpeech();
+      chatHistory.splice(0, chatHistory.length, ...context);
+      if (chatsInitialized) {
+        musicCard.hidden = true;
+        musicResults.replaceChildren();
+        setPending(null);
+      }
+      chatsInitialized = true;
+    }
+  });
   refreshMemoryList();
 })();
 
