@@ -574,24 +574,33 @@
   const aiCheck = document.createElement('button');
   aiCheck.type = 'button';
   aiCheck.textContent = 'Check connection';
-  aiPanel.append(aiStatus, document.createElement('br'), aiSignIn, aiCheck);
+  const aiReload = document.createElement('button');
+  aiReload.type = 'button'; aiReload.textContent = 'Reload Nova';
+  aiReload.onclick = () => { if (!thinking && !signingIn) window.location.reload(); };
+  const aiHelp = document.createElement('a');
+  aiHelp.href = 'https://puter.com'; aiHelp.target = '_blank'; aiHelp.rel = 'noopener noreferrer';
+  aiHelp.textContent = 'Open Puter'; aiHelp.style.marginLeft = '10px';
+  aiPanel.append(aiStatus, document.createElement('br'), aiSignIn, aiCheck, aiReload, aiHelp);
   form.before(aiPanel);
   function aiConnectionState() {
     if (navigator.onLine === false) return 'offline';
-    if (!window.puter?.ai?.chat || !window.puter?.auth?.isSignedIn) return 'unavailable';
+    if (!window.puter?.ai?.chat || !window.puter?.auth?.isSignedIn || !window.puter?.auth?.signIn) return 'unavailable';
     try { return puter.auth.isSignedIn() ? 'signed-in' : 'signed-out'; }
     catch { return 'unavailable'; }
   }
   function refreshAIStatus() {
     const state = aiConnectionState();
     aiStatus.textContent = {
-      offline: 'You appear to be offline. Reconnect before sending.',
-      unavailable: 'AI service did not load. Check your connection or content blocker, then reload Nova.',
+      offline: 'You appear to be offline. Reconnect to use AI. Your saved chats are still available on this browser.',
+      unavailable: 'Nova opened, but its AI service (Puter) did not load. This can happen because of a connection problem, a service issue, or a device/network restriction. Try Reload Nova once. If Open Puter shows a school block, ask school IT for access or use a permitted personal device and network. Nova cannot tell which cause applies. Saved chats are still available here.',
       'signed-out': 'Sign in to Puter to use AI replies. Your message stays here until you send it.',
       'signed-in': ''
     }[state];
     aiPanel.hidden = state === 'signed-in';
-    aiSignIn.hidden = state === 'signed-in';
+    aiSignIn.hidden = state !== 'signed-out';
+    aiCheck.hidden = state !== 'signed-out';
+    aiReload.hidden = state !== 'unavailable';
+    aiHelp.hidden = state !== 'unavailable';
     return state;
   }
   function aiErrorMessage(error) {
@@ -623,7 +632,11 @@
       aiStatus.textContent = /timed out/.test(error?.message || '') ? 'Sign-in is still incomplete. Close any old sign-in window before retrying, or press Check connection after signing in.' : aiErrorMessage(error);
     } finally { clearTimeout(timer); signingIn = false; aiSignIn.disabled = false; }
   };
-  aiCheck.onclick = refreshAIStatus;
+  aiCheck.onclick = () => {
+    if (thinking || signingIn) return;
+    const state = refreshAIStatus();
+    if (state === 'signed-out') aiStatus.textContent = 'Checked: the AI service loaded, but you are still signed out. Press Sign in to AI to continue.';
+  };
   window.addEventListener('online', refreshAIStatus);
   window.addEventListener('offline', refreshAIStatus);
   refreshAIStatus();
