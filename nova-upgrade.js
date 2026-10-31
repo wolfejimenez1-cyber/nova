@@ -577,6 +577,68 @@
 
   const chatHistory = [];
   let thinking = false;
+  const aiPanel = document.createElement('div');
+  aiPanel.style.cssText = 'font-size:13px;margin:8px;line-height:1.5';
+  const aiStatus = document.createElement('span');
+  aiStatus.setAttribute('role', 'status');
+  const aiSignIn = document.createElement('button');
+  aiSignIn.type = 'button';
+  aiSignIn.textContent = 'Sign in to AI';
+  const aiCheck = document.createElement('button');
+  aiCheck.type = 'button';
+  aiCheck.textContent = 'Check connection';
+  aiPanel.append(aiStatus, document.createElement('br'), aiSignIn, aiCheck);
+  form.before(aiPanel);
+  function aiConnectionState() {
+    if (navigator.onLine === false) return 'offline';
+    if (!window.puter?.ai?.chat || !window.puter?.auth?.isSignedIn) return 'unavailable';
+    try { return puter.auth.isSignedIn() ? 'signed-in' : 'signed-out'; }
+    catch { return 'unavailable'; }
+  }
+  function refreshAIStatus() {
+    const state = aiConnectionState();
+    aiStatus.textContent = {
+      offline: 'You appear to be offline. Reconnect before sending.',
+      unavailable: 'AI service did not load. Check your connection or content blocker, then reload Nova.',
+      'signed-out': 'Sign in to Puter to use AI replies. Your message stays here until you send it.',
+      'signed-in': 'Signed in to Puter. Service availability and your account allowance still apply.'
+    }[state];
+    aiSignIn.hidden = state === 'signed-in';
+    return state;
+  }
+  function aiErrorMessage(error) {
+    const code = String(error?.error?.code || error?.code || error?.error || '');
+    const message = String(error?.message || error?.msg || error?.error?.message || '');
+    const detail = code + ' ' + message;
+    if (/popup_blocked/i.test(detail)) return 'The sign-in popup was blocked. Allow popups for Nova, then press Sign in to AI.';
+    if (/auth_window_closed/i.test(detail)) return 'Sign-in was cancelled. Press Sign in to AI when ready.';
+    if (/quota|allowance|insufficient|credit|payment|usage.limit/i.test(detail)) return 'Puter reports an account usage or credit limit. Check your allowance; Nova will not buy credits or start a subscription.';
+    if (/429|rate.limit|too.many/i.test(detail)) return 'The AI service is receiving too many requests. Wait a little, then send again.';
+    if (/401|unauth|token|sign.in|auth/i.test(detail)) return 'Puter could not authorize the request. Use Sign in to AI, then send again.';
+    if (/network|fetch|offline|connection/i.test(detail)) return 'The AI connection failed. Check your internet or content blocker, then try again.';
+    if (/No reply returned/i.test(detail)) return 'The AI returned no usable text. Please try again.';
+    return 'The AI request failed for an unknown reason. Check your Puter account and connection, then try again.';
+  }
+  let signingIn = false;
+  aiSignIn.onclick = async () => {
+    if (signingIn || thinking) return;
+    if (!window.puter?.auth?.signIn) { refreshAIStatus(); return; }
+    signingIn = true; aiSignIn.disabled = true;
+    aiStatus.textContent = 'Complete sign-in in the Puter popup. If no window appears, check popup permissions.';
+    let timer;
+    try {
+      await Promise.race([puter.auth.signIn(), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('Sign-in timed out')), 60000);
+      })]);
+      refreshAIStatus();
+    } catch (error) {
+      aiStatus.textContent = /timed out/.test(error?.message || '') ? 'Sign-in is still incomplete. Close any old sign-in window before retrying, or press Check connection after signing in.' : aiErrorMessage(error);
+    } finally { clearTimeout(timer); signingIn = false; aiSignIn.disabled = false; }
+  };
+  aiCheck.onclick = refreshAIStatus;
+  window.addEventListener('online', refreshAIStatus);
+  window.addEventListener('offline', refreshAIStatus);
+  refreshAIStatus();
   let cancelAnswer = null;
   const stopAnswerButton = document.createElement('button');
   stopAnswerButton.type = 'button';
@@ -600,6 +662,10 @@
     const text = input.value.trim();
     if (!text) return;
     if (thinking) { window.reply("I'm finishing my current answer."); return; }
+    const localRequest = /^(?:please\s+)?(?:remember|forget)\s+/i.test(text) ||
+      /\bwhat do you remember\b|\bshow my memories\b|\bwhat have you saved\b/i.test(text) ||
+      findSpotifyCommand(text) || /^(?:connect\s+(?:my\s+)?spotify|spotify\s+settings)[.!]?$/i.test(text);
+    if (!localRequest && refreshAIStatus() !== 'signed-in') return;
     input.value = "";
     add("You", text);
 
@@ -623,12 +689,9 @@
 
     suggestMemory(text);
 
-    if (!window.puter?.ai?.chat) {
-      window.reply("I couldn't reach the AI right now. Please check your connection and Puter sign-in.");
-      return;
-    }
     thinking = true;
     stopAnswerButton.hidden = false;
+    aiStatus.textContent = 'Thinking…';
     const sendButton = form.querySelector('button[type="submit"]');
     if (sendButton) sendButton.disabled = true;
     try {
@@ -648,16 +711,20 @@
       const answer = result?.message?.content;
       if (typeof answer !== "string" || !answer.trim()) throw new Error("No reply returned");
       window.reply(answer);
+      aiStatus.textContent = 'Reply received.';
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: answer });
       if (chatHistory.length > 20) chatHistory.splice(0, chatHistory.length - 20);
     } catch (error) {
-      if (error.message === 'NOVA_CANCELLED') {
+      if (error?.message === 'NOVA_CANCELLED') {
+        aiStatus.textContent = 'Response stopped.';
         window.reply('Stopped waiting for this response. You can send another message. The provider may still finish the original request.');
-      } else if (error.message === 'NOVA_TIMEOUT') {
+      } else if (error?.message === 'NOVA_TIMEOUT') {
+        aiStatus.textContent = 'AI request timed out.';
         window.reply('The AI took too long to reply. You can try again. Check your connection and Puter sign-in if this continues.');
       } else {
-        console.error("Nova chat:", error);
-        window.reply("I couldn't reach the AI right now. Please check your internet connection and Puter sign-in.");
+        aiStatus.textContent = aiErrorMessage(error);
+        aiSignIn.hidden = false;
+        window.reply(aiStatus.textContent);
       }
     } finally {
       thinking = false;
