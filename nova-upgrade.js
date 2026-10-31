@@ -577,6 +577,24 @@
 
   const chatHistory = [];
   let thinking = false;
+  let cancelAnswer = null;
+  const stopAnswerButton = document.createElement('button');
+  stopAnswerButton.type = 'button';
+  stopAnswerButton.textContent = 'Stop response';
+  stopAnswerButton.hidden = true;
+  form.after(stopAnswerButton);
+  stopAnswerButton.onclick = () => { if (cancelAnswer) cancelAnswer(); };
+  function awaitAnswer(request, timeoutMs = 60000) {
+    let timer;
+    const interrupted = new Promise((_, reject) => {
+      cancelAnswer = () => reject(new Error('NOVA_CANCELLED'));
+      timer = setTimeout(() => reject(new Error('NOVA_TIMEOUT')), timeoutMs);
+    });
+    return Promise.race([request, interrupted]).finally(() => {
+      clearTimeout(timer);
+      cancelAnswer = null;
+    });
+  }
   form.onsubmit = async (event) => {
     event.preventDefault();
     const text = input.value.trim();
@@ -610,6 +628,7 @@
       return;
     }
     thinking = true;
+    stopAnswerButton.hidden = false;
     const sendButton = form.querySelector('button[type="submit"]');
     if (sendButton) sendButton.disabled = true;
     try {
@@ -625,17 +644,24 @@
           saved.map((x) => "- " + x).join("\n") : "No memories saved yet.");
       const messages = [{ role: "system", content: context },
         ...chatHistory.slice(-14), { role: "user", content: text }];
-      const result = await puter.ai.chat(messages, { normalize: true });
+      const result = await awaitAnswer(puter.ai.chat(messages, { normalize: true }));
       const answer = result?.message?.content;
       if (typeof answer !== "string" || !answer.trim()) throw new Error("No reply returned");
       window.reply(answer);
       chatHistory.push({ role: "user", content: text }, { role: "assistant", content: answer });
       if (chatHistory.length > 20) chatHistory.splice(0, chatHistory.length - 20);
     } catch (error) {
-      console.error("Nova chat:", error);
-      window.reply("I couldn't reach the AI right now. Please check your internet connection and Puter sign-in.");
+      if (error.message === 'NOVA_CANCELLED') {
+        window.reply('Stopped waiting for this response. You can send another message. The provider may still finish the original request.');
+      } else if (error.message === 'NOVA_TIMEOUT') {
+        window.reply('The AI took too long to reply. You can try again. Check your connection and Puter sign-in if this continues.');
+      } else {
+        console.error("Nova chat:", error);
+        window.reply("I couldn't reach the AI right now. Please check your internet connection and Puter sign-in.");
+      }
     } finally {
       thinking = false;
+      stopAnswerButton.hidden = true;
       if (sendButton) sendButton.disabled = false;
     }
   };
@@ -747,3 +773,4 @@
   // Show Settings for the one-time Spotify connection; never display the original player panel.
   refreshMemoryList();
 })();
+
