@@ -20,7 +20,7 @@ function setup() {
     abort(){this.aborted=true; this.onend?.();}
   }
   const c = {handsFree:false,speaking:false,voiceTurnPending:false,resumeVoiceTimer:null,
-    thinking:false,musicBusy:false,cancelAnswer:null,outputMode:'type',
+    thinking:false,musicBusy:false,fileTools:null,cancelAnswer:null,outputMode:'type',
     input:el(),micButton:el(),voiceSource:el(),
     form:{after(){},onsubmit:async()=>{sent++; c.input.value=''; c.speaking=true;},requestSubmit(){c.pending=this.onsubmit({preventDefault(){}});}},
     window:{SpeechRecognition:Recognition,isSecureContext:true},
