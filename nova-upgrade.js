@@ -117,7 +117,7 @@
       </div>
       <div class="nova-settings-section">
         <h3>🎙 Voice</h3>
-        <p>Talk starts the microphone for one message and reads replies aloud. Press Microphone for another message, or Stop listening to cancel. Type stops listening and switches to silent replies. Speech recognition depends on your browser and may send audio to its speech service.</p>
+        <p>Talk records one message. Start voice conversation listens again after each spoken reply, using free device voices. Stop voice ends listening and speech. Silence, errors, typing, or leaving this tab ends the session. This is turn-by-turn voice, not an always-on wake word. Speech recognition depends on your browser and may send audio to its speech service.</p>
         <label for="nova-voice-source">Voice type</label>
         <select id="nova-voice-source">
           <option value="browser">Device voices (free)</option>
@@ -193,6 +193,11 @@
   voiceSpeed.value = localStorage.getItem("nova_voice_speed") || "1";
   $("nova-speed-label").textContent = Number(voiceSpeed.value).toFixed(1) + "×";
 
+  let handsFree = false;
+  let speaking = false;
+  let voiceTurnPending = false;
+  let resumeVoiceTimer = null;
+  let speechWatchdog = null;
   let speechVersion = 0;
   let lastAudio = null;
   let browserVoices = [];
@@ -200,6 +205,11 @@
 
   function stopSpeech() {
     speechVersion++;
+    speaking = false;
+    const voiceStop = document.getElementById('nova-stop-voice');
+    if (voiceStop) voiceStop.hidden = !handsFree;
+    clearTimeout(resumeVoiceTimer);
+    clearTimeout(speechWatchdog);
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (lastAudio) { lastAudio.pause(); lastAudio = null; }
   }
@@ -209,7 +219,7 @@
     if (outputMode === "type") stopSpeech();
     localStorage.setItem("nova_output_mode", outputMode);
   }
-  $("nova-mode-type").onclick = () => { stopMicrophone(); outputMode = "type"; updateMode(); };
+  $("nova-mode-type").onclick = () => { endVoiceSession(); stopMicrophone(); outputMode = "type"; updateMode(); };
   $("nova-mode-talk").onclick = () => { outputMode = "talk"; updateMode(); startMicrophone(); };
   updateMode();
 
@@ -245,6 +255,23 @@
     if (!clean) return;
     stopSpeech();
     const current = speechVersion;
+    speaking = true;
+    voiceStatus.textContent = 'Speaking… You can stop voice at any time.';
+    stopVoiceButton.hidden = false;
+    const finished = () => {
+      if (current !== speechVersion) return;
+      clearTimeout(speechWatchdog);
+      speaking = false;
+      stopVoiceButton.hidden = !handsFree;
+      voiceStatus.textContent = handsFree ? 'Getting ready to listen…' : 'Finished speaking. Tap Talk for another message.';
+      resumeVoiceSession();
+    };
+    const failed = () => {
+      if (current !== speechVersion) return;
+      endVoiceSession(); stopSpeech();
+      voiceStatus.textContent = 'Voice playback could not finish. Your answer is still in the chat. Try a device voice in Settings.';
+    };
+    speechWatchdog = setTimeout(failed, 120000);
     if (voiceSource.value === "ai") {
       try {
         if (!window.puter?.ai?.txt2speech) throw new Error("AI voice unavailable");
@@ -256,19 +283,22 @@
         });
         if (current !== speechVersion) return;
         lastAudio = audio;
+        audio.onended = finished; audio.onerror = failed;
         await audio.play();
       } catch (error) {
+        failed();
         console.error("Nova voice:", error);
         $("nova-toast").textContent = "AI voice unavailable. Try a free device voice.";
       }
       return;
     }
-    if (!("speechSynthesis" in window)) return;
+    if (!("speechSynthesis" in window)) { failed(); return; }
     const speech = new SpeechSynthesisUtterance(clean);
     const chosen = browserVoices.find((v) => v.name + "|" + v.lang === voiceChoice.value);
     if (chosen) speech.voice = chosen;
     speech.rate = Number(voiceSpeed.value);
-    speechSynthesis.speak(speech);
+    speech.onend = finished; speech.onerror = failed;
+    try { speechSynthesis.speak(speech); } catch { failed(); }
   }
   $("nova-test-voice").onclick = () => { stopSpeech(); speak("Hello. I'm Nova, your personal AI assistant."); };
 
@@ -279,7 +309,7 @@
     if (!replay) savedChats?.record('assistant', String(message));
     const bubble = chat.lastElementChild;
     if (bubble) NovaPresentation.render(bubble, String(message));
-    if (!replay && outputMode === "talk") speak(message);
+    if (!replay && outputMode === "talk" && !document.hidden) speak(message);
   };
 
   // Global script in the existing page defines memories, save(), and renderMemories().
@@ -682,7 +712,7 @@
     }
 
     const spotifyCommand = findSpotifyCommand(text);
-    if (spotifyCommand) { handleSpotify(spotifyCommand); return; }
+    if (spotifyCommand) { await handleSpotify(spotifyCommand); return; }
     if (/^(?:connect\s+(?:my\s+)?spotify|spotify\s+settings)[.!]?$/i.test(text)) {
       showMusic();
       musicStatus.textContent = "Connect Spotify here, then choose your device. No Settings detour needed.";
@@ -726,6 +756,7 @@
       if (chatHistory.length > 20) chatHistory.splice(0, chatHistory.length - 20);
       savedChats?.context(chatHistory);
     } catch (error) {
+      endVoiceSession();
       if (error?.message === 'NOVA_CANCELLED') {
         aiStatus.textContent = 'Response stopped.';
         window.reply('Stopped waiting for this response. You can send another message. The provider may still finish the original request.');
@@ -745,7 +776,7 @@
     }
   };
 
-  // One recognition session at a time; no silent/background restarts.
+  // Hands-free listening is opt-in and ends on errors, silence, or leaving the page.
   const voiceStatus = document.createElement("p");
   voiceStatus.id = "nova-voice-status";
   voiceStatus.setAttribute("role", "status");
@@ -754,12 +785,59 @@
   form.after(voiceStatus);
   voiceStatus.textContent = "Tap Talk to speak, or type a message.";
   let activeRecognition = null;
+  const voiceSessionButton = document.createElement('button');
+  voiceSessionButton.type = 'button'; voiceSessionButton.textContent = 'Start voice conversation';
+  voiceSessionButton.setAttribute('aria-pressed', 'false');
+  const stopVoiceButton = document.createElement('button');
+  stopVoiceButton.id = 'nova-stop-voice';
+  stopVoiceButton.type = 'button'; stopVoiceButton.textContent = 'Stop voice'; stopVoiceButton.hidden = true;
+  voiceStatus.after(voiceSessionButton, stopVoiceButton);
+  function endVoiceSession() {
+    handsFree = false; clearTimeout(resumeVoiceTimer);
+    voiceSessionButton.setAttribute('aria-pressed', 'false');
+    voiceSessionButton.textContent = 'Start voice conversation';
+    stopVoiceButton.hidden = !speaking;
+  }
+  function resumeVoiceSession() {
+    clearTimeout(resumeVoiceTimer);
+    if (!handsFree || speaking || voiceTurnPending || thinking || musicBusy || activeRecognition) return;
+    if (document.hidden || input.value.trim()) { endVoiceSession(); return; }
+    resumeVoiceTimer = setTimeout(() => {
+      if (handsFree && !speaking && !voiceTurnPending && !thinking && !musicBusy && !document.hidden && !input.value.trim()) startMicrophone();
+    }, 350);
+  }
+  voiceSessionButton.onclick = () => {
+    if (handsFree) { stopVoiceButton.click(); return; }
+    if (thinking || musicBusy || input.value.trim()) {
+      voiceStatus.textContent = 'Finish the current task and send or clear your draft before starting voice conversation.'; return;
+    }
+    // Hands-free mode always uses free device voices; never opts into AI voice costs.
+    voiceSource.value = 'browser'; loadVoiceChoices();
+    outputMode = 'talk'; updateMode(); handsFree = true;
+    voiceSessionButton.textContent = 'Voice conversation on'; voiceSessionButton.setAttribute('aria-pressed', 'true');
+    stopVoiceButton.hidden = false; startMicrophone();
+  };
+  stopVoiceButton.onclick = () => {
+    endVoiceSession(); stopMicrophone(); stopSpeech();
+    if (cancelAnswer) cancelAnswer();
+    outputMode = 'type'; updateMode(); stopVoiceButton.hidden = true;
+    voiceStatus.textContent = 'Voice stopped. Microphone and spoken replies are off.';
+  };
+  const submitWithVoice = form.onsubmit;
+  form.onsubmit = async (event) => {
+    try { await submitWithVoice(event); }
+    finally { voiceTurnPending = false; resumeVoiceSession(); }
+  };
+  input.addEventListener('input', (event) => {
+    if (handsFree && event.isTrusted) { endVoiceSession(); stopMicrophone(); stopSpeech(); outputMode = 'type'; updateMode(); voiceStatus.textContent = 'Voice conversation paused while you type.'; }
+  });
   function setMicrophoneBusy(busy) {
     if (!micButton) return;
     micButton.textContent = busy ? "Stop listening" : "Microphone";
     micButton.setAttribute("aria-pressed", String(busy));
   }
   function microphoneError(code) {
+    endVoiceSession();
     const help = {
       "not-allowed": "Microphone access was blocked. Open this site's browser permissions, allow Microphone, and check your device's microphone privacy settings. Then reload Nova and try again.",
       "service-not-allowed": "This browser blocked its speech-recognition service. Microphone permission alone may not fix it. Try Nova in another browser with speech recognition, or use your keyboard's dictation.",
@@ -774,6 +852,7 @@
     voiceStatus.textContent = (help[code] || "Voice input couldn't start. Reload Nova and try again, or use keyboard dictation.") + " (Voice error: " + code + ")";
   }
   function stopMicrophone() {
+    endVoiceSession();
     const previous = activeRecognition;
     activeRecognition = null;
     if (previous) { try { previous.abort(); } catch {} }
@@ -782,7 +861,7 @@
   }
   function startMicrophone() {
     if (activeRecognition) return;
-    if (thinking) { voiceStatus.textContent = "Nova is finishing its answer. Try the microphone when it finishes."; return; }
+    if (thinking || musicBusy) { voiceStatus.textContent = "Nova is finishing its answer. Try the microphone when it finishes."; return; }
     if (input.value.trim()) { voiceStatus.textContent = "Send or clear your typed draft before starting the microphone."; return; }
     const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!window.isSecureContext) { microphoneError("insecure"); return; }
@@ -815,7 +894,9 @@
         return;
       }
       input.value = heard;
-      voiceStatus.textContent = "Heard: “" + heard + "”. Message sent. Tap Talk for your next message.";
+      voiceTurnPending = true;
+      input.dispatchEvent(new Event('input')); // Persist the recognized draft before sending.
+      voiceStatus.textContent = 'Thinking… Heard: “' + heard + '”.';
       if (form.requestSubmit) form.requestSubmit();
       else form.dispatchEvent(new Event("submit", { cancelable: true }));
     };
@@ -846,7 +927,7 @@
     else startMicrophone();
   };
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden && activeRecognition) stopMicrophone();
+    if (document.hidden) { endVoiceSession(); stopMicrophone(); stopSpeech(); }
   });
 
   // Show Settings for the one-time Spotify connection; never display the original player panel.
@@ -856,7 +937,7 @@
     busy: () => thinking || musicBusy || !!activeRecognition || signingIn,
     render: (role, text) => role === 'user' ? add('You', text) : window.reply(text, true),
     onSelect: (context) => {
-      stopSpeech();
+      endVoiceSession(); stopSpeech();
       chatHistory.splice(0, chatHistory.length, ...context);
       if (chatsInitialized) {
         musicCard.hidden = true;
